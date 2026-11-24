@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRUD de Tareas con JWT - FastAPI & Neon</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; color: #333; max-width: 800px; margin: 30px auto; padding: 20px; }
+        h1, h3 { color: #2c3e50; text-align: center; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input, textarea { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; }
+        button:hover { background-color: #0056b3; }
+        .acciones { display: flex; gap: 6px; flex-wrap: wrap; }
+        .btn-edit { background-color: #ffc107; color: #212529; width: auto; padding: 5px 10px; font-size: 12px; }
+        .btn-edit:hover { background-color: #e0a800; }
+        .btn-danger { background-color: #dc3545; width: auto; padding: 5px 10px; font-size: 12px; }
+        .btn-danger:hover { background-color: #c82333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background-color: #343a40; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .hidden { display: none; }
+        .auth-container { display: flex; gap: 20px; }
+        .auth-box { flex: 1; }
+        .success-msg { color: #28a745; font-weight: bold; margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <h1>Gestor de Tareas (FastAPI + Neon)</h1>
+
+    <!-- SECCIÓN DE AUTENTICACIÓN -->
+    <div id="auth-section" class="auth-container">
+        <div class="card auth-box">
+            <h3>Registro</h3>
+            <input type="text" id="reg-user" placeholder="Usuario">
+            <input type="password" id="reg-pass" placeholder="Contraseña">
+            <button onclick="registrar()">Registrarse</button>
+        </div>
+        <div class="card auth-box">
+            <h3>Iniciar Sesión</h3>
+            <input type="text" id="login-user" placeholder="Usuario">
+            <input type="password" id="login-pass" placeholder="Contraseña">
+            <button onclick="login()" style="background-color: #28a745;">Entrar</button>
+        </div>
+    </div>
+
+    <!-- SECCIÓN DE TAREAS -->
+    <div id="app-section" class="hidden">
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">Panel de Control</h3>
+                <button onclick="cerrarSesion()" style="background-color: #6c757d; width: auto; padding: 5px 10px;">Cerrar Sesión</button>
+            </div>
+            <p id="user-logged" class="success-msg"></p>
+        </div>
+
+        <!-- Formulario para Crear Tarea -->
+        <div class="card">
+            <h3>Crear Nueva Tarea</h3>
+            <input type="text" id="titulo" placeholder="Título de la tarea">
+            <textarea id="descripcion" placeholder="Descripción de la tarea" rows="2"></textarea>
+            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <input type="checkbox" id="completada" style="width: auto; margin: 0;"> ¿Completada?
+            </label>
+            <button onclick="crearTarea()" style="background-color: #28a745;">Guardar Tarea</button>
+        </div>
+
+        <!-- Tabla de Tareas (CRUD) -->
+        <div class="card">
+            <h3>Lista de Tareas</h3>
+            <button onclick="cargarTareas()" style="background-color: #17a2b8; margin-bottom: 15px;">Actualizar Lista</button>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Título</th>
+                        <th>Descripción</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-tareas">
+                    <!-- Se cargan dinámicamente -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8000";
+        let tokenJwt = localStorage.getItem("token") || "";
+        let tareasCache = [];
+
+        if (tokenJwt) {
+            mostrarApp();
+        }
+
+        async function registrar() {
+            const u = document.getElementById("reg-user").value;
+            const p = document.getElementById("reg-pass").value;
+            if (!u || !p) { alert("Llena todos los campos"); return; }
+
+            const res = await fetch(`${API_URL}/register`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: u, password: p })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                alert("¡Usuario registrado con éxito! Ahora inicia sesión.");
+                document.getElementById("reg-user").value = "";
+                document.getElementById("reg-pass").value = "";
+            } else {
+                alert("Error: " + JSON.stringify(data.detail || data));
+            }
+        }
+
+        async function login() {
+            const u = document.getElementById("login-user").value;
+            const p = document.getElementById("login-pass").value;
+
+            const formData = new URLSearchParams();
+            formData.append("username", u);
+            formData.append("password", p);
+
+            const res = await fetch(`${API_URL}/login`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formData
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                tokenJwt = data.access_token;
+                localStorage.setItem("token", tokenJwt);
+                document.getElementById("user-logged").innerText = `Sesión iniciada como: ${u}`;
+                mostrarApp();
+                cargarTareas();
+            } else {
+                alert("Credenciales incorrectas o usuario no registrado.");
+            }
+        }
+
+        function mostrarApp() {
+            document.getElementById("auth-section").classList.add("hidden");
+            document.getElementById("app-section").classList.remove("hidden");
+            cargarTareas();
+        }
+
+        function cerrarSesion() {
+            localStorage.removeItem("token");
+            tokenJwt = "";
+            document.getElementById("app-section").classList.add("hidden");
+            document.getElementById("auth-section").classList.remove("hidden");
+        }
+
+        // --- FUNCIONES DEL CRUD DE TAREAS (Con Token JWT en Headers) ---
+        async function cargarTareas() {
+            try {
+                const response = await fetch(`${API_URL}/tareas/`, {
+                    headers: {
+                        "Authorization": `Bearer ${tokenJwt}`
+                    }
+                });
+                if (!response.ok) {
+                    if (response.status === 401) cerrarSesion();
+                    throw new Error("No autorizado");
+                }
+
+                const tareas = await response.json();
+                tareasCache = tareas;
+                const tbody = document.getElementById("tabla-tareas");
+                tbody.innerHTML = "";
+
+                tareas.forEach(tarea => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td>${tarea.id}</td>
+                        <td><b>${tarea.titulo}</b></td>
+                        <td>${tarea.descripcion || 'Sin descripción'}</td>
+                        <td>${tarea.completada ? '✅ Sí' : '❌ No'}</td>
+                        <td>
+                            <div class="acciones">
+                                <button class="btn-edit" onclick="actualizarTarea(${tarea.id})">Actualizar</button>
+                                <button class="btn-danger" onclick="eliminarTarea(${tarea.id})">Eliminar</button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        }
+
+        async function crearTarea() {
+            const titulo = document.getElementById("titulo").value;
+            const descripcion = document.getElementById("descripcion").value;
+            const completada = document.getElementById("completada").checked;
+
+            if (!titulo) {
+                alert("El título es obligatorio");
+                return;
+            }
+
+            const response = await fetch(`${API_URL}/tareas/`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${tokenJwt}`
+                },
+                body: JSON.stringify({ titulo, descripcion, completada })
+            });
+
+            if (response.ok) {
+                document.getElementById("titulo").value = "";
+                document.getElementById("descripcion").value = "";
+                document.getElementById("completada").checked = false;
+                cargarTareas();
+            } else {
+                alert("Error al crear la tarea");
+            }
+        }
+
+        async function actualizarTarea(id) {
+            const tareaActual = tareasCache.find(t => t.id === id);
+            if (!tareaActual) return;
+
+            const nuevoTitulo = prompt("Nuevo título de la tarea:", tareaActual.titulo);
+            if (nuevoTitulo === null) return;
+            if (!nuevoTitulo.trim()) {
+                alert("El título no puede quedar vacío");
+                return;
+            }
+
+            const nuevaDescripcion = prompt("Nueva descripción de la tarea:", tareaActual.descripcion || "");
+            if (nuevaDescripcion === null) return;
+
+            const nuevaCompletada = confirm("¿Marcar la tarea como COMPLETADA? (Aceptar = Sí, Cancelar = No)");
+
+            const response = await fetch(`${API_URL}/tareas/${id}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${tokenJwt}`
+                },
+                body: JSON.stringify({
+                    titulo: nuevoTitulo.trim(),
+                    descripcion: nuevaDescripcion,
+                    completada: nuevaCompletada
+                })
+            });
+
+            if (response.ok) {
+                cargarTareas();
+            } else {
+                if (response.status === 401) cerrarSesion();
+                alert("Error al actualizar la tarea");
+            }
+        }
+
+        async function eliminarTarea(id) {
+            if (!confirm("¿Deseas eliminar esta tarea?")) return;
+
+            const response = await fetch(`${API_URL}/tareas/${id}`, {
+                method: "DELETE",
+                headers: {
+                    "Authorization": `Bearer ${tokenJwt}`
+                }
+            });
+
+            if (response.ok) {
+                cargarTareas();
+            } else {
+                alert("Error al eliminar la tarea");
+            }
+        }
+    </script>
+</body>
+</html>
